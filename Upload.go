@@ -57,6 +57,7 @@ func uploadOne(client *gowebdav.Client, from, to string) error {
         log.Printf("Error during opening %s: %s", from, err)
         return err
     }
+    defer f.Close()
     return client.WriteStream(to, f, os.ModePerm)
 }
 

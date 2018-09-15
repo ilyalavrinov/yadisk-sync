@@ -149,6 +149,7 @@ func (s UploadSummary) print() {
     if failedN > 0 {
         fname := fmt.Sprintf("upload_failed_%s.list", time.Now().Format("20060102150405"))
         f, err := os.Create(fname)
+        defer f.Close()
         if err != nil {
             fmt.Printf("Failed to create file %s for failed uploads. Failed upload list: %+v", fname, s.failedToUpload)
         } else {
