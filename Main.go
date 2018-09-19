@@ -10,10 +10,7 @@ import "fmt"
 import "syscall"
 import "sync"
 import "golang.org/x/crypto/ssh/terminal"
-import "runtime/pprof"
-import "strconv"
-import "math/rand"
-import "runtime"
+
 
 const argFrom = "from"
 var fromPath = flag.String(argFrom, "", "File or directory which could be uploaded")
@@ -57,10 +54,9 @@ func main() {
         return
     }
 
-    pprofDir := path.Join(os.TempDir(), "yadiskprofile", strconv.Itoa(int(100000 + rand.Int31n(899999))))
     if *profilingEnabled {
-        startProfiling(pprofDir)
-        defer stopProfiling(pprofDir)
+        startProfiling()
+        defer stopProfiling()
     }
 
     uploads := createUploadList(*fromPath, *toPath)
@@ -192,42 +188,4 @@ func collectResults(results <-chan UploadResult, wg *sync.WaitGroup, resultsExpe
         }
     }
     wg.Done()
-}
-
-func startProfiling(dir string) {
-    log.Printf("Starting profiling. Everything will be stored at %s \n", dir)
-    err := os.MkdirAll(dir, os.ModePerm)
-    if err != nil {
-        panic(err)
-    }
-
-    cpuFileName := path.Join(dir, "cpu.pprof")
-    cpuFile, err := os.Create(cpuFileName)
-    if err != nil {
-        panic(err)
-    }
-
-    err = pprof.StartCPUProfile(cpuFile)
-    if err != nil {
-        panic(err)
-    }
-
-
-}
-
-func stopProfiling(dir string) {
-
-    pprof.StopCPUProfile()
-
-    memFileName := path.Join(dir, "mem.pprof")
-    memFile, err := os.Create(memFileName)
-    if err != nil {
-        panic(err)
-    }
-    runtime.GC() // get up-to-date statistics
-    if err := pprof.WriteHeapProfile(memFile); err != nil {
-        panic(err)
-    }
-    memFile.Close()
-    log.Printf("Profiling has been finished. All data is at %s \n", dir)
 }
