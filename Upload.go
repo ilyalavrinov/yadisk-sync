@@ -34,14 +34,14 @@ type UploadResult struct {
 
 type Uploader struct {
     opts UploadOptions
-    client gowebdav.Client
+    client *gowebdav.Client
     tasks <-chan UploadTask
     results chan<- UploadResult
 }
 
 func NewUploader(opts UploadOptions, tasks <-chan UploadTask, results chan<- UploadResult) *Uploader {
     u := &Uploader{opts: opts,
-                   client: *gowebdav.NewClient(opts.Host, opts.User, opts.Password),
+                   client: gowebdav.NewClient(opts.Host, opts.User, opts.Password),
                    tasks: tasks,
                    results: results}
 
@@ -67,7 +67,7 @@ func (u *Uploader) Run() {
         for ; notClosed; task, notClosed = <-u.tasks {
             log.Printf("Uploading %s to %s", task.From, task.To)
             t1 := time.Now()
-            err := uploadOne(&u.client, task.From, task.To)
+            err := uploadOne(u.client, task.From, task.To)
             t2 := time.Now()
             log.Printf("Uploaded %s with error: %v", task.From, err)
             if err != nil {
