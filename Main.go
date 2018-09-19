@@ -43,10 +43,6 @@ func main() {
     if fromPath == nil || *fromPath == "" {
         isCorrectArgs = false
     }
-    if *user == "" {
-        // TODO: request from stdin same as password
-        isCorrectArgs = false
-    }
 
     if isCorrectArgs == false {
         log.Printf("Incorrect input arguments")
@@ -61,6 +57,10 @@ func main() {
 
     uploads := createUploadList(*fromPath, *toPath)
     log.Printf("Uploads: %+v", uploads)
+
+    if *user == "" {
+        *user = requestFromStdin("user")
+    }
 
     pw := requestFromStdin("password")
     opts := UploadOptions { Host: *host,
@@ -122,9 +122,10 @@ func createUploadList(fpath, uploadDir string) []UploadTask {
 
 
 func requestFromStdin(what string) string {
-    fmt.Print("Enter Password: ")
-    bytePassword, _ := terminal.ReadPassword(int(syscall.Stdin))
-    return string(bytePassword)
+    fmt.Printf("Enter %s: ", what)
+    byteData, _ := terminal.ReadPassword(int(syscall.Stdin))
+    fmt.Println("")
+    return string(byteData)
 }
 
 type UploadSummary struct {
