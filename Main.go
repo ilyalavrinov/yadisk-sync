@@ -56,7 +56,7 @@ func main() {
     }
 
     uploads := createUploadList(*fromPath, *toPath)
-    log.Printf("Uploads: %+v", uploads)
+    log.Printf("%d files are going to be uploaded", len(uploads))
 
     if *user == "" {
         *user = requestFromStdin("user")
@@ -96,7 +96,7 @@ func main() {
 
 func createUploadList(fpath, uploadDir string) []UploadTask {
     result := make([]UploadTask, 0, 1)
-    log.Printf("Creating upload list for: %s (with uploadDir %s)", fpath, uploadDir)
+    // log.Printf("Creating upload list for: %s (with uploadDir %s)", fpath, uploadDir)
     stat, err := os.Stat(fpath)
     if err != nil {
         panic(err)

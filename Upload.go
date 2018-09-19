@@ -65,20 +65,22 @@ func (u *Uploader) Run() {
     go func() {
         task, notClosed := <-u.tasks
         for ; notClosed; task, notClosed = <-u.tasks {
-            log.Printf("Uploading %s to %s", task.From, task.To)
+            // log.Printf("Uploading %s to %s", task.From, task.To)
             t1 := time.Now()
             err := uploadOne(u.client, task.From, task.To)
             t2 := time.Now()
-            log.Printf("Uploaded %s with error: %v", task.From, err)
             if err != nil {
                 log.Printf("Could not upload '%s' to '%s' due to error: %s", task.From, task.To, err)
                 u.results<- UploadResult{From: task.From,
                                          Status: StatusFailed}
             } else {
                 finfo, _ := os.Stat(task.From)
+                tdiff := t2.Sub(t1)
+                size := finfo.Size()
+                log.Printf("Uploaded %s within %s at speed %f bytes/s", task.From, tdiff, float64(size)/tdiff.Seconds())
                 u.results<- UploadResult{Status: StatusUploaded,
-                                         TimeSpent: t2.Sub(t1),
-                                         Size: finfo.Size()}
+                                         TimeSpent: tdiff,
+                                         Size: size}
             }
         }
     }()
