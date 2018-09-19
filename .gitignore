@@ -12,3 +12,5 @@
 *.out
 
 yadisk-sync
+*.pdf
+*.svg
