@@ -1,5 +1,5 @@
-github.com/studio-b12/gowebdav v0.0.0-20180713235558-3cd755d6c475 h1:7WHoMw8YmEBPxVf5nQ5RuHp0k/651UOCHtZ2ygD+LgA=
-github.com/studio-b12/gowebdav v0.0.0-20180713235558-3cd755d6c475/go.mod h1:gCcfDlA1Y7GqOaeEKw5l9dOGx1VLdc/HuQSlQAaZ30s=
+github.com/studio-b12/gowebdav v0.0.0-20180610090158-9ff8e33634d8 h1:RGdugOZd5l58Ns3Tq3aKOqsp3OENuiwSIwDIkSCKHuA=
+github.com/studio-b12/gowebdav v0.0.0-20180610090158-9ff8e33634d8/go.mod h1:gCcfDlA1Y7GqOaeEKw5l9dOGx1VLdc/HuQSlQAaZ30s=
 golang.org/x/crypto v0.0.0-20180910181607-0e37d006457b h1:2b9XGzhjiYsYPnKXoEfL7klWZQIt8IfyRCz62gCqqlQ=
 golang.org/x/crypto v0.0.0-20180910181607-0e37d006457b/go.mod h1:6SG95UA2DQfeDnfUPMdvaQW0Q7yPrPDi9nlGo2tz2b4=
 golang.org/x/sys v0.0.0-20180926160741-c2ed4eda69e7 h1:bit1t3mgdR35yN0cX0G8orgLtOuyL9Wqxa1mccLB0ig=
