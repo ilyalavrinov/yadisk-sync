@@ -9,6 +9,8 @@ import "path"
 import "encoding/hex"
 import "github.com/studio-b12/gowebdav"
 
+// UploadOptions provide settings for the connection to the server
+// TODO: rename to ConnectionSettings or something similar
 type UploadOptions struct {
 	Host     string
 	User     string
@@ -16,12 +18,15 @@ type UploadOptions struct {
 	// Token string    // not supported by the library currently
 }
 
+// UploadTask defines upload parameters for a single file
 type UploadTask struct {
 	From, To string
 }
 
+// UploadStatus indicates how the upload has finished
 type UploadStatus int
 
+// All possible values of UploadStatus
 const (
 	StatusUploaded     UploadStatus = iota
 	StatusFailed                    = iota
@@ -30,6 +35,7 @@ const (
 	StatusLast = iota
 )
 
+// UploadResult provides the status of the single file upload
 type UploadResult struct {
 	From      string
 	Status    UploadStatus
@@ -37,6 +43,7 @@ type UploadResult struct {
 	Size      int64
 }
 
+// Uploader provides separate goroutine for file upload
 type Uploader struct {
 	opts    UploadOptions
 	client  *gowebdav.Client
@@ -44,6 +51,7 @@ type Uploader struct {
 	results chan<- UploadResult
 }
 
+// NewUploader creates a new Uploader
 func NewUploader(opts UploadOptions, tasks <-chan UploadTask, results chan<- UploadResult) *Uploader {
 	u := &Uploader{opts: opts,
 		client:  gowebdav.NewClient(opts.Host, opts.User, opts.Password),
@@ -118,6 +126,7 @@ func uploadOne(client *gowebdav.Client, from, to string) error {
 	return client.WriteStream(to, f, os.ModePerm)
 }
 
+// Run starts an uploader in a separate goroutine
 func (u *Uploader) Run() {
 	go func() {
 		task, notClosed := <-u.tasks

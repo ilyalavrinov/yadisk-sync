@@ -11,28 +11,20 @@ import "syscall"
 import "sync"
 import "golang.org/x/crypto/ssh/terminal"
 
-const argFrom = "from"
+const (
+	argFrom    = "from"
+	argTo      = "to"
+	argHost    = "host"
+	argThreads = "threads"
+	argUser    = "user"
+	argProfile = "pprof"
+)
 
 var fromPath = flag.String(argFrom, "", "File or directory which could be uploaded")
-
-const argTo = "to"
-
 var toPath = flag.String(argTo, "", "Remote directory where everything will be uploaded")
-
-const argHost = "host"
-
 var host = flag.String(argHost, "https://webdav.yandex.ru", "WedDAV server hostname")
-
-const argThreads = "threads"
-
 var threadsNum = flag.Int(argThreads, 10, "Number of threads used for uploading")
-
-const argUser = "user"
-
 var user = flag.String(argUser, "", "Username used for authentication")
-
-const argProfile = "pprof"
-
 var profilingEnabled = flag.Bool(argProfile, false, "Enables profiling")
 
 func main() {
@@ -132,6 +124,7 @@ func requestFromStdin(what string) string {
 	return string(byteData)
 }
 
+// UploadSummary provides accumulated statistics about how did the uploading go
 type UploadSummary struct {
 	statuses          map[UploadStatus]int
 	totalSizeUploaded int64
@@ -141,6 +134,7 @@ type UploadSummary struct {
 	failedToUpload []string
 }
 
+// NewUploadSummary initializes new UploadSummary
 func NewUploadSummary() *UploadSummary {
 	s := &UploadSummary{statuses: make(map[UploadStatus]int, StatusLast),
 		failedToUpload: make([]string, 0)}
