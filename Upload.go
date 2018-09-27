@@ -3,6 +3,10 @@ package main
 import "log"
 import "os"
 import "time"
+import "crypto/md5"
+import "io"
+import "path"
+import "encoding/hex"
 import "github.com/studio-b12/gowebdav"
 
 type UploadOptions struct {
@@ -52,7 +56,59 @@ func NewUploader(opts UploadOptions, tasks <-chan UploadTask, results chan<- Upl
 	return u
 }
 
+func calcMD5(localFile string) string {
+	f, err := os.Open(localFile)
+	if err != nil {
+		log.Printf("Could not open %s for hashing; error: %s", localFile, err)
+		return ""
+	}
+	defer f.Close()
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		log.Printf("Could not calculate hash for %s; error: %s", localFile, err)
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func checkNeedUpload(client *gowebdav.Client, from, to string) bool {
+	info, err := client.Stat(to)
+	if err != nil {
+		if _, ok := err.(*os.PathError); ok {
+			log.Printf("PathError for remote file %s. Proceeding with upload", to)
+		} else {
+			log.Printf("Could not get Stat for remote file %s; error: %s. Uploading still", to, err)
+		}
+		return true
+	}
+	if remoteInfo, ok := info.(*gowebdav.File); ok {
+		md5remote := remoteInfo.ETag()
+		md5local := calcMD5(from)
+		if md5remote != md5local {
+			log.Printf("md5 of (local) %s and (remote) %s are mismatched: %s != %s", from, to, md5remote, md5local)
+			return true
+		}
+	} else {
+		log.Printf("Stat for remote %s is of incorrect type", to)
+		return true
+	}
+
+	log.Printf("Local file %s has a remote couterpart %s with same md5. No need to upload", from, to)
+	return false
+}
+
 func uploadOne(client *gowebdav.Client, from, to string) error {
+	if !checkNeedUpload(client, from, to) {
+		// TODO: return "already exists"
+		return nil
+	}
+
+	err := client.MkdirAll(path.Dir(to), os.ModePerm)
+	if err != nil {
+		log.Printf("Error during creation of directories for %s; error: %s", to, err)
+		return err
+	}
+
 	f, err := os.Open(from)
 	if err != nil {
 		log.Printf("Error during opening %s: %s", from, err)
