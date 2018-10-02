@@ -1,3 +1,4 @@
+[![Build Status](https://travis-ci.com/admirallarimda/yadisk-sync.svg?branch=master)](https://travis-ci.com/admirallarimda/yadisk-sync)
 # yadisk-sync
 Tool for explicit synching files with Yandex.Disk
 
