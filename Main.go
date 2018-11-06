@@ -1,6 +1,6 @@
 package main
 
-import "log"
+import log "github.com/sirupsen/logrus"
 import "flag"
 import "os"
 import "time"
@@ -30,20 +30,25 @@ var profilingEnabled = flag.Bool(argProfile, false, "Enables profiling")
 
 func main() {
 	flag.Parse()
-	log.Printf("Arg: %s Value: %s", argFrom, *fromPath)
-	log.Printf("Arg: %s Value: %s", argTo, *toPath)
-	log.Printf("Arg: %s Value: %d", argThreads, *threadsNum)
-	log.Printf("Arg: %s Value: %s", argUser, *user)
-	log.Printf("Arg: %s Value: %s", argHost, *host)
-	log.Printf("Arg: %s Value: %t", argProfile, *profilingEnabled)
+
+	// TODO: add verbose and quite flags
+	log.SetLevel(log.DebugLevel)
+
+	log.WithFields(log.Fields{"arg": argFrom, "value": *fromPath}).Debug("Argument")
+	log.WithFields(log.Fields{"arg": argTo, "value": *toPath}).Debug("Argument")
+	log.WithFields(log.Fields{"arg": argThreads, "value": *threadsNum}).Debug("Argument")
+	log.WithFields(log.Fields{"arg": argUser, "value": *user}).Debug("Argument")
+	log.WithFields(log.Fields{"arg": argHost, "value": *host}).Debug("Argument")
+	log.WithFields(log.Fields{"arg": argProfile, "value": *profilingEnabled}).Debug("Argument")
 
 	isCorrectArgs := true
 	if fromPath == nil || *fromPath == "" {
+		log.WithFields(log.Fields{"arg": argFrom}).Error("Mandatory argument missing")
 		isCorrectArgs = false
 	}
 
 	if isCorrectArgs == false {
-		log.Printf("Incorrect input arguments")
+		log.Error("Mandatory argument missing, printing help")
 		flag.PrintDefaults()
 		return
 	}
@@ -54,10 +59,11 @@ func main() {
 	}
 
 	uploads := createUploadList(*fromPath, *toPath)
-	log.Printf("%d files are going to be uploaded", len(uploads))
+	log.WithFields(log.Fields{"count": len(uploads)}).Info("List of uploads is ready")
 
 	if *user == "" {
 		*user = requestFromStdin("user")
+		log.WithFields(log.Fields{"user": *user}).Debug("User has been requested from stdin")
 	}
 
 	pw := requestFromStdin("password")
@@ -83,9 +89,7 @@ func main() {
 		uploadTasks <- u
 	}
 
-	log.Printf("Finished sending %d tasks\n", len(uploads))
 	wg.Wait()
-	log.Println("Finished uploading")
 	t2 := time.Now()
 	summary.clockTimeSpent = t2.Sub(t1)
 
@@ -143,31 +147,50 @@ func NewUploadSummary() *UploadSummary {
 }
 
 func (s UploadSummary) print() {
-	fmt.Printf("Total uploaded: %d; skipped: %d; failed: %d\n", s.statuses[StatusUploaded], s.statuses[StatusAlreadyExist], s.statuses[StatusFailed])
-	fmt.Printf("Total uploaded bytes: %d\n", s.totalSizeUploaded)
+	log.WithFields(log.Fields{
+		"uploaded": s.statuses[StatusUploaded],
+		"skipped":  s.statuses[StatusAlreadyExist],
+		"failed":   s.statuses[StatusFailed]}).Info("Totals")
+	//fmt.Printf("Total uploaded: %d; skipped: %d; failed: %d\n", s.statuses[StatusUploaded], s.statuses[StatusAlreadyExist], s.statuses[StatusFailed])
 
-	rawSpeed := float64(s.totalSizeUploaded) / s.totalTimeSpent.Seconds()
-	fmt.Printf("Raw time spent for upload: %s\n", s.totalTimeSpent)
-	fmt.Printf("Raw average speed: %f bytes/s\n", rawSpeed)
+	log.WithFields(log.Fields{
+		"B":  s.totalSizeUploaded,
+		"KB": s.totalSizeUploaded / 1024,
+		"MB": s.totalSizeUploaded / 1024 / 1024,
+		"GB": s.totalSizeUploaded / 1024 / 1024 / 1024}).Info("Total processed size")
+	//fmt.Printf("Total uploaded bytes: %d\n", s.totalSizeUploaded)
 
-	actualSpeed := float64(s.totalSizeUploaded) / s.clockTimeSpent.Seconds()
-	fmt.Printf("Clock time spent for upload: %s\n", s.clockTimeSpent)
-	fmt.Printf("Average speed: %f bytes/s\n", actualSpeed)
+	log.WithFields(log.Fields{
+		"spent":   s.totalTimeSpent,
+		"bytes/s": float64(s.totalSizeUploaded) / s.totalTimeSpent.Seconds()}).Info("Raw processing stats (as if in 1 thread)")
+	//fmt.Printf("Raw time spent for upload: %s\n", s.totalTimeSpent)
+	//fmt.Printf("Raw average speed: %f bytes/s\n", float64(s.totalSizeUploaded) / s.totalTimeSpent.Seconds())
+
+	log.WithFields(log.Fields{
+		"spent":   s.totalTimeSpent,
+		"bytes/s": float64(s.totalSizeUploaded) / s.clockTimeSpent.Seconds()}).Info("Actual processing stats")
+	//fmt.Printf("Clock time spent for upload: %s\n", s.clockTimeSpent)
+	//fmt.Printf("Average speed: %f bytes/s\n", float64(s.totalSizeUploaded) / s.clockTimeSpent.Seconds())
 
 	failedN := len(s.failedToUpload)
-	fmt.Printf("Failed uploads: %d\n", failedN)
+	log.WithField("failed", failedN).Warn("Failed transactions")
+	//fmt.Printf("Failed uploads: %d\n", failedN)
 	if failedN > 0 {
 		fname := fmt.Sprintf("upload_failed_%s.list", time.Now().Format("20060102150405"))
 		f, err := os.Create(fname)
 		defer f.Close()
 		if err != nil {
-			fmt.Printf("Failed to create file %s for failed uploads. Failed upload list: %+v", fname, s.failedToUpload)
+			log.WithFields(log.Fields{
+				"file": fname,
+				"list": s.failedToUpload}).Warn("Failed to create a file for failed uploads")
+			//fmt.Printf("Failed to create file %s for failed uploads. Failed upload list: %+v", fname, s.failedToUpload)
 		} else {
 			for _, failedUpload := range s.failedToUpload {
 				f.WriteString(failedUpload)
 				f.WriteString("\n")
 			}
-			fmt.Printf("Failed uploads have beed written to file %s", fname)
+			log.WithFields(log.Fields{"file": fname}).Warn("Failed uploads have beed written")
+			//fmt.Printf("Failed uploads have beed written to file %s", fname)
 		}
 	}
 }
@@ -177,6 +200,11 @@ func collectResults(results <-chan UploadResult, wg *sync.WaitGroup, resultsExpe
 		summary.statuses[res.Status]++
 		switch res.Status {
 		case StatusUploaded:
+			log.WithFields(log.Fields{
+				"from":    res.From,
+				"spent":   res.TimeSpent,
+				"size":    res.Size,
+				"bytes/s": float64(res.Size) / res.TimeSpent.Seconds()}).Debug("Uploaded")
 			summary.totalSizeUploaded += res.Size
 			summary.totalTimeSpent += res.TimeSpent
 		case StatusFailed:

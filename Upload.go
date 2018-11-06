@@ -1,6 +1,6 @@
 package main
 
-import "log"
+import log "github.com/sirupsen/logrus"
 import "os"
 import "time"
 import "crypto/md5"
@@ -59,7 +59,7 @@ func NewUploader(opts UploadOptions, tasks <-chan UploadTask, results chan<- Upl
 		results: results}
 
 	if err := u.client.Connect(); err != nil {
-		log.Fatalf("Could not open connection with settings %+v due to error: %s", u.opts, err)
+		log.WithFields(log.Fields{"settings": u.opts, "error": err}).Fatal("Could not open connection")
 	}
 	return u
 }
@@ -67,13 +67,13 @@ func NewUploader(opts UploadOptions, tasks <-chan UploadTask, results chan<- Upl
 func calcMD5(localFile string) string {
 	f, err := os.Open(localFile)
 	if err != nil {
-		log.Printf("Could not open %s for hashing; error: %s", localFile, err)
+		log.WithFields(log.Fields{"file": localFile, "error": err}).Debug("Could not open file for hashing")
 		return ""
 	}
 	defer f.Close()
 	h := md5.New()
 	if _, err := io.Copy(h, f); err != nil {
-		log.Printf("Could not calculate hash for %s; error: %s", localFile, err)
+		log.WithFields(log.Fields{"file": localFile, "error": err}).Debug("Could not calculate hash")
 		return ""
 	}
 	return hex.EncodeToString(h.Sum(nil))
@@ -83,9 +83,9 @@ func checkNeedUpload(client *gowebdav.Client, from, to string) bool {
 	info, err := client.Stat(to)
 	if err != nil {
 		if _, ok := err.(*os.PathError); ok {
-			log.Printf("PathError for remote file %s. Proceeding with upload", to)
+			log.WithFields(log.Fields{"file": to}).Debug("PathError for remote file (ok, file is absent)")
 		} else {
-			log.Printf("Could not get Stat for remote file %s; error: %s. Uploading still", to, err)
+			log.WithFields(log.Fields{"file": to, "error": err}).Debug("Some error for remote file (still need uploading)")
 		}
 		return true
 	}
@@ -93,15 +93,19 @@ func checkNeedUpload(client *gowebdav.Client, from, to string) bool {
 		md5remote := remoteInfo.ETag()
 		md5local := calcMD5(from)
 		if md5remote != md5local {
-			log.Printf("md5 of (local) %s and (remote) %s are mismatched: %s != %s", from, to, md5remote, md5local)
+			log.WithFields(log.Fields{
+				"file_local":  from,
+				"file_remote": to,
+				"md5_local":   md5local,
+				"md5_remote":  md5remote}).Debug("MD5 mismatch for local and remote")
 			return true
 		}
 	} else {
-		log.Printf("Stat for remote %s is of incorrect type", to)
+		log.WithFields(log.Fields{"file_remote": to}).Error("Stat for remote file has unexpected type (still uploading)")
 		return true
 	}
 
-	log.Printf("Local file %s has a remote couterpart %s with same md5. No need to upload", from, to)
+	log.WithFields(log.Fields{"file_local": from, "file_remote": to}).Debug("Local and remote have same MD5")
 	return false
 }
 
@@ -113,13 +117,13 @@ func uploadOne(client *gowebdav.Client, from, to string) error {
 
 	err := client.MkdirAll(path.Dir(to), os.ModePerm)
 	if err != nil {
-		log.Printf("Error during creation of directories for %s; error: %s", to, err)
+		log.WithFields(log.Fields{"file": to, "error": err}).Error("Could not create directory tree")
 		return err
 	}
 
 	f, err := os.Open(from)
 	if err != nil {
-		log.Printf("Error during opening %s: %s", from, err)
+		log.WithFields(log.Fields{"file": from, "error": err}).Error("Could not open local file")
 		return err
 	}
 	defer f.Close()
@@ -136,14 +140,14 @@ func (u *Uploader) Run() {
 			err := uploadOne(u.client, task.From, task.To)
 			t2 := time.Now()
 			if err != nil {
-				log.Printf("Could not upload '%s' to '%s' due to error: %s", task.From, task.To, err)
-				u.results <- UploadResult{From: task.From,
+				log.WithFields(log.Fields{"from": task.From, "to": task.To, "error": err}).Error("Upload failed")
+				u.results <- UploadResult{
+					From:   task.From,
 					Status: StatusFailed}
 			} else {
 				finfo, _ := os.Stat(task.From)
 				tdiff := t2.Sub(t1)
 				size := finfo.Size()
-				log.Printf("Uploaded %s within %s at speed %f bytes/s", task.From, tdiff, float64(size)/tdiff.Seconds())
 				u.results <- UploadResult{Status: StatusUploaded,
 					TimeSpent: tdiff,
 					Size:      size}
