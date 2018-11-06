@@ -9,6 +9,7 @@ import "path"
 import "fmt"
 import "syscall"
 import "sync"
+import "runtime"
 import "golang.org/x/crypto/ssh/terminal"
 
 const (
@@ -23,7 +24,7 @@ const (
 var fromPath = flag.String(argFrom, "", "File or directory which could be uploaded")
 var toPath = flag.String(argTo, "", "Remote directory where everything will be uploaded")
 var host = flag.String(argHost, "https://webdav.yandex.ru", "WedDAV server hostname")
-var threadsNum = flag.Int(argThreads, 10, "Number of threads used for uploading")
+var threadsNum = flag.Int(argThreads, runtime.GOMAXPROCS(0)*3, "Number of threads used for uploading")
 var user = flag.String(argUser, "", "Username used for authentication")
 var profilingEnabled = flag.Bool(argProfile, false, "Enables profiling")
 
