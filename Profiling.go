@@ -2,7 +2,7 @@ package main
 
 import "os"
 import "path"
-import "log"
+import log "github.com/sirupsen/logrus"
 import "runtime"
 import "runtime/pprof"
 import "math/rand"
@@ -19,7 +19,7 @@ func startProfiling() {
 	rand.Seed(int64(time.Now().Nanosecond()))
 	pprofDir = path.Join(os.TempDir(), "yadiskprofile", strconv.Itoa(int(100000+rand.Int31n(899999))))
 
-	log.Printf("Starting profiling. Everything will be stored at %s \n", pprofDir)
+	log.WithFields(log.Fields{"dir": pprofDir}).Info("Starting profiling")
 	err := os.MkdirAll(pprofDir, os.ModePerm)
 	if err != nil {
 		panic(err)
@@ -41,7 +41,7 @@ func stopProfiling() {
 	pprof.StopCPUProfile()
 
 	if pprofDir == "" {
-		log.Printf("Profile dir is empty. Some profiling will be not written")
+		log.Warn("Profile dir is empty on stop. Some profiling will be not written")
 		return
 	}
 
@@ -55,5 +55,5 @@ func stopProfiling() {
 		panic(err)
 	}
 	memFile.Close()
-	log.Printf("Profiling has been finished. All data is at %s \n", pprofDir)
+	log.WithFields(log.Fields{"dir": pprofDir}).Info("Profiling has been finished")
 }
