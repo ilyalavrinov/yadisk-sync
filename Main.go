@@ -19,6 +19,14 @@ const (
 	argThreads = "threads"
 	argUser    = "user"
 	argProfile = "pprof"
+
+	argVerbose      = "verbose"
+	argVerboseShort = "v"
+	argVerboseDesc  = "Verbose mode - prints extended logs"
+
+	argQuiet      = "quiet"
+	argQuietShort = "q"
+	argQuietDesc  = "Quiet mode - only problems are reported"
 )
 
 var fromPath = flag.String(argFrom, "", "File or directory which could be uploaded")
@@ -27,12 +35,26 @@ var host = flag.String(argHost, "https://webdav.yandex.ru", "WedDAV server hostn
 var threadsNum = flag.Int(argThreads, runtime.GOMAXPROCS(0)*3, "Number of threads used for uploading")
 var user = flag.String(argUser, "", "Username used for authentication")
 var profilingEnabled = flag.Bool(argProfile, false, "Enables profiling")
+var verbose = flag.Bool(argVerbose, false, argVerboseDesc)
+var quiet = flag.Bool(argQuiet, false, argQuietDesc)
+
+func init() {
+	// initialization of short version of flags
+	flag.BoolVar(verbose, argVerboseShort, false, argVerboseDesc)
+	flag.BoolVar(quiet, argQuietShort, false, argQuietDesc)
+}
 
 func main() {
 	flag.Parse()
-
-	// TODO: add verbose and quite flags
-	log.SetLevel(log.DebugLevel)
+	if *verbose && *quiet {
+		log.Error("Verbose and quiet mode are set simultaneously - please set only one of them")
+		os.Exit(1)
+	}
+	if *verbose {
+		log.SetLevel(log.DebugLevel)
+	} else if *quiet {
+		log.SetLevel(log.WarnLevel)
+	}
 
 	log.WithFields(log.Fields{"arg": argFrom, "value": *fromPath}).Debug("Argument")
 	log.WithFields(log.Fields{"arg": argTo, "value": *toPath}).Debug("Argument")
@@ -40,6 +62,8 @@ func main() {
 	log.WithFields(log.Fields{"arg": argUser, "value": *user}).Debug("Argument")
 	log.WithFields(log.Fields{"arg": argHost, "value": *host}).Debug("Argument")
 	log.WithFields(log.Fields{"arg": argProfile, "value": *profilingEnabled}).Debug("Argument")
+	log.WithFields(log.Fields{"arg": argVerbose, "value": *verbose}).Debug("Argument")
+	log.WithFields(log.Fields{"arg": argQuiet, "value": *quiet}).Debug("Argument")
 
 	isCorrectArgs := true
 	if fromPath == nil || *fromPath == "" {
@@ -50,7 +74,7 @@ func main() {
 	if isCorrectArgs == false {
 		log.Error("Mandatory argument missing, printing help")
 		flag.PrintDefaults()
-		return
+		os.Exit(1)
 	}
 
 	if *profilingEnabled {
