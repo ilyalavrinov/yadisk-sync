@@ -1,6 +1,5 @@
 language: go
 go:
-<<<<<<< HEAD
 - '1.11'
 
 script:
@@ -22,12 +21,4 @@ deploy:
   skip_cleanup: true
   on:
     repo: admirallarimda/yadisk-sync
-=======
-  - "1.11"
-deploy:
-  provider: releases
-  file: "yadisk-sync"
-  skip_cleanup: true
-  on:
->>>>>>> 227cf4b959cfd2ac81502bc4cdbc8869c9358719
     tags: true
