@@ -1,3 +1,24 @@
 language: go
 go:
-  - "1.11"
+- '1.11'
+
+script:
+  - go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+after_success:
+  - bash <(curl -s https://codecov.io/bash)
+  - go get github.com/mitchellh/gox
+  - gox -os="linux darwin windows" -arch="amd64" -output="{{.Dir}}.{{.OS}}.{{.Arch}}" -verbose ./...
+
+deploy:
+  provider: releases
+  api_key:
+    secure: HbhqBPHjd4QLHaVRRXv47mFefcJ+PLfWm20LKIK7CdhSTHX/gQ+lBbcvxZljc+mUrV8MaVYv9RV5vIIsRgm+DSebzzQ3i3fI17ds3FT/PZnTNbsuz6rLo+A0Qg9azya6eTkvZNda0IyYeZ1qyjwBQSZQiYU1OnVKYLYXWBKu9eLaorcMG2O8cJOhI6FPGdhEZnAWgNzM/RfLUL+D5M6kcMJaVIU3aRKsZp6SO/nrbeoImVmiogZ9a/ylBK/VQ6aHdTQs01T2DCvVnXfKT6+hcb/7ch19lOVtCLrb1LyzwXTnK0YuVNAY9iZB5cWlohnQIXUIgAQCc76UG82eIp7B7LxRyR7m1nDaiRvjH5lSj3daLhjfUhXEyZSzkL28NRghYpU97g2KvMp0cJsJgEgo7FAxZkBaE08qixfqDPLn1ZitvCZUoiV50q8ofj/jWmKfowxPGd3LOLDDXf16UcYGgjQf5jRqtvKONZ/MRi0V/QzwYVnEstf14RnlNL0BBReEDuGbfNSDowoJQ62ozov4bD0Z5VtgY3xb8nZx5reETQ/v8lONfKIM/KJEzhI0Ae4mLsljUwWKF/taJWDP4Lgqq6Fpax0fVsUmmfh/b33RPZcBgFgHI3kHaDI3BX3eYh40jB3QlBIqMpUdVwsj8L6v/MXNRyc18VVGKLvwiDFQee0=
+  file:
+    - yadisk-sync.linux.amd64
+    - yadisk-sync.darwin.amd64
+    - yadisk-sync.windows.amd64.exe
+  skip_cleanup: true
+  on:
+    repo: admirallarimda/yadisk-sync
+    tags: true
