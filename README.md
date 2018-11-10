@@ -7,11 +7,14 @@ This tool works via WebDAV protocol, thus you could try it with any other WebDAV
 ## How to use
 Simply run it like this: _./yadisk-sync --from [from] --to [to] --user admirallarimda_
 
-If [from] is a directory, all subsequent directories will be stored on a server as well, preserving directory structure starting from that directory. 
+If [from] is a directory, all subsequent directories will be stored on a server as well, preserving directory structure starting from that directory.
 
 File masking is **not yet supported** (i.e. you can't write something like --from *.jpg)
 
 [to] points to the folder on a server where all data should be stored ([to] directory might be missing, the tool will create it automatically)
+
+## Where to get
+All binaries are automatically created for each release. Latest release could be found [here](https://github.com/admirallarimda/yadisk-sync/releases/latest)
 
 ## Building
 go 1.11 is preferable (due to modules support). Though you should be able to compile with lower versions of go toolset.
