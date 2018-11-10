@@ -14,7 +14,7 @@ deploy:
   provider: releases
   api_key:
     secure: NOo8Zv7SV+jdx/6JTT5RDANCVDaUUa26Zg19c9MULr/HCstUeb2iKmcLmU53a0o7lcXbKib4QwclBfjOew/ydfOhXWsC6hqwlsyAru4sMcnEvFP9LSHju0RLF8re59YEjhbaRK9VIbk6R4ujElcMiPHkCROHg6yabT+pmrBgKv9Acv9UUT3r8qGOaGNQ2ja4i9kES3gyz0bANxfP31xogFSoHsc+HdQYoAPs1+ojC7ENZ5H1RzYFiN/f4f0phRgWiInh29MJuFcXJe6O5RtDjrmiX6JLtBM4GxqogRNzOxIQfppWF2vrfAqrt48A0ld/sSRzH2/+cH8AdvHrjH6HW8iskQOVj3PTcBugOBkS9/kHRhKgVZKKgI82DMbWGmJLmgUMpN6+ut/C9EpEjsepKqK33gunevcRnNdc2szlInh/sf2qXY4c+QpWBRD4sEnyOIQkAbOosdj1qcuDOouMVN0jJi8aEThG4jIvzAoJ1mQNMnP7V/qvUhp5UsLe/HOcR6y9FE10cWnBknt+dLuL1WyedPbtfnuZHM4mXl/0LsqG/sJjus7ugbXiNXu/T7cei+CdeTJvK4Yw0eM7ndc9phUVWHGNHhKk2u8kLk0Srck74Dyalkv7Wjt/9DXGkHrwI2OOUnGaCUaCc9zf85CHNBAUyj38yOALwtad+Em1OFI=
-file:
+  file:
     - yadisk-sync.linux.amd64
     - yadisk-sync.darwin.amd64
     - yadisk-sync.windows.amd64.exe
