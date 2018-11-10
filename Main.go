@@ -197,9 +197,9 @@ func (s UploadSummary) print() {
 	//fmt.Printf("Average speed: %f bytes/s\n", float64(s.totalSizeUploaded) / s.clockTimeSpent.Seconds())
 
 	failedN := len(s.failedToUpload)
-	log.WithField("failed", failedN).Warn("Failed transactions")
 	//fmt.Printf("Failed uploads: %d\n", failedN)
 	if failedN > 0 {
+		log.WithField("failed", failedN).Warn("Failed transactions")
 		fname := fmt.Sprintf("upload_failed_%s.list", time.Now().Format("20060102150405"))
 		f, err := os.Create(fname)
 		defer f.Close()
@@ -228,11 +228,16 @@ func collectResults(results <-chan UploadResult, wg *sync.WaitGroup, resultsExpe
 				"from":    res.From,
 				"spent":   res.TimeSpent,
 				"size":    res.Size,
-				"bytes/s": float64(res.Size) / res.TimeSpent.Seconds()}).Debug("Uploaded")
+				"bytes/s": float64(res.Size) / res.TimeSpent.Seconds()}).Info("Uploaded")
 			summary.totalSizeUploaded += res.Size
 			summary.totalTimeSpent += res.TimeSpent
+		case StatusAlreadyExist:
+			log.WithFields(log.Fields{
+				"from": res.From}).Debug("Already exists, skipping upload")
 		case StatusFailed:
 			summary.failedToUpload = append(summary.failedToUpload, res.From)
+		default:
+			panic("Unhandled status")
 		}
 		resultsExpected--
 		if resultsExpected == 0 {

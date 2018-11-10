@@ -148,7 +148,9 @@ func (u *Uploader) Run() {
 				finfo, _ := os.Stat(task.From)
 				tdiff := t2.Sub(t1)
 				size := finfo.Size()
-				u.results <- UploadResult{Status: StatusUploaded,
+				u.results <- UploadResult{
+					Status:    StatusUploaded,
+					From:      task.From,
 					TimeSpent: tdiff,
 					Size:      size}
 			}
