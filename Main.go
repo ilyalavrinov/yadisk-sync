@@ -225,7 +225,7 @@ func collectResults(results <-chan UploadResult, wg *sync.WaitGroup, resultsExpe
 		switch res.Status {
 		case StatusUploaded:
 			log.WithFields(log.Fields{
-				"from":    res.From,
+				"from":    res.Task.From,
 				"spent":   res.TimeSpent,
 				"size":    res.Size,
 				"bytes/s": float64(res.Size) / res.TimeSpent.Seconds()}).Info("Uploaded")
@@ -233,9 +233,10 @@ func collectResults(results <-chan UploadResult, wg *sync.WaitGroup, resultsExpe
 			summary.totalTimeSpent += res.TimeSpent
 		case StatusAlreadyExist:
 			log.WithFields(log.Fields{
-				"from": res.From}).Debug("Already exists, skipping upload")
+				"from": res.Task.From}).Debug("Already exists, skipping upload")
 		case StatusFailed:
-			summary.failedToUpload = append(summary.failedToUpload, res.From)
+			log.WithFields(log.Fields{"from": res.Task.From, "to": res.Task.To, "error": res.Error}).Error("Upload failed")
+			summary.failedToUpload = append(summary.failedToUpload, res.Task.From)
 		default:
 			panic("Unhandled status")
 		}

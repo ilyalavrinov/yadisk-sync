@@ -37,10 +37,11 @@ const (
 
 // UploadResult provides the status of the single file upload
 type UploadResult struct {
-	From      string
+	Task      UploadTask
 	Status    UploadStatus
 	TimeSpent time.Duration
 	Size      int64
+	Error     error
 }
 
 // Uploader provides separate goroutine for file upload
@@ -109,25 +110,31 @@ func checkNeedUpload(client *gowebdav.Client, from, to string) bool {
 	return false
 }
 
-func uploadOne(client *gowebdav.Client, from, to string) error {
+func uploadOne(client *gowebdav.Client, from, to string) (UploadStatus, error) {
 	if !checkNeedUpload(client, from, to) {
 		// TODO: return "already exists"
-		return nil
+		return StatusAlreadyExist, nil
 	}
 
 	err := client.MkdirAll(path.Dir(to), os.ModePerm)
 	if err != nil {
 		log.WithFields(log.Fields{"file": to, "error": err}).Error("Could not create directory tree")
-		return err
+		return StatusFailed, err
 	}
 
 	f, err := os.Open(from)
 	if err != nil {
 		log.WithFields(log.Fields{"file": from, "error": err}).Error("Could not open local file")
-		return err
+		return StatusFailed, err
 	}
 	defer f.Close()
-	return client.WriteStream(to, f, os.ModePerm)
+
+	err = client.WriteStream(to, f, os.ModePerm)
+	if err != nil {
+		log.WithFields(log.Fields{"file": from, "error": err}).Error("Could not upload file")
+		return StatusFailed, err
+	}
+	return StatusUploaded, nil
 }
 
 // Run starts an uploader in a separate goroutine
@@ -137,23 +144,17 @@ func (u *Uploader) Run() {
 		for ; notClosed; task, notClosed = <-u.tasks {
 			// log.Printf("Uploading %s to %s", task.From, task.To)
 			t1 := time.Now()
-			err := uploadOne(u.client, task.From, task.To)
-			t2 := time.Now()
-			if err != nil {
-				log.WithFields(log.Fields{"from": task.From, "to": task.To, "error": err}).Error("Upload failed")
-				u.results <- UploadResult{
-					From:   task.From,
-					Status: StatusFailed}
-			} else {
-				finfo, _ := os.Stat(task.From)
-				tdiff := t2.Sub(t1)
-				size := finfo.Size()
-				u.results <- UploadResult{
-					Status:    StatusUploaded,
-					From:      task.From,
-					TimeSpent: tdiff,
-					Size:      size}
-			}
+			status, err := uploadOne(u.client, task.From, task.To)
+			tdiff := time.Now().Sub(t1)
+			finfo, _ := os.Stat(task.From)
+			size := finfo.Size()
+			res := UploadResult{
+				Status:    status,
+				Task:      task,
+				TimeSpent: tdiff,
+				Size:      size,
+				Error:     err}
+			u.results <- res
 		}
 	}()
 }
