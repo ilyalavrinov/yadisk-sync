@@ -215,25 +215,27 @@ func (s TransferSummary) print() {
 func collectResults(results <-chan TransferResult, wg *sync.WaitGroup, resultsExpected int, summary *TransferSummary) {
 	for res := range results {
 		summary.statuses[res.Status]++
+		resultsExpected--
+		logger := log.WithFields(log.Fields{
+			"from":      res.Task.From,
+			"remaining": resultsExpected})
 		switch res.Status {
 		case StatusDone:
-			log.WithFields(log.Fields{
-				"from":    res.Task.From,
+			logger.WithFields(log.Fields{
 				"spent":   res.TimeSpent,
 				"size":    res.Size,
 				"bytes/s": float64(res.Size) / res.TimeSpent.Seconds()}).Info("Transferred")
 			summary.totalSizeTransferred += res.Size
 			summary.totalTimeSpent += res.TimeSpent
 		case StatusAlreadyExist:
-			log.WithFields(log.Fields{
-				"from": res.Task.From}).Debug("Already exists, skipping transfer")
+			logger.Debug("Already exists, skipping transfer")
 		case StatusFailed:
-			log.WithFields(log.Fields{"from": res.Task.From, "to": res.Task.To, "error": res.Error}).Error("Transfer failed")
+			logger.WithFields(log.Fields{"to": res.Task.To, "error": res.Error}).Error("Transfer failed")
 			summary.failedToTransfer = append(summary.failedToTransfer, res.Task.From)
 		default:
 			panic("Unhandled status")
 		}
-		resultsExpected--
+
 		if resultsExpected == 0 {
 			break
 		}
