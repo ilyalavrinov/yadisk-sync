@@ -9,36 +9,36 @@ import "path"
 import "encoding/hex"
 import "github.com/studio-b12/gowebdav"
 
-// UploadOptions provide settings for the connection to the server
+// TransferSettings provide settings for the connection to the server
 // TODO: rename to ConnectionSettings or something similar
-type UploadOptions struct {
+type TransferSettings struct {
 	Host     string
 	User     string
 	Password string
 	// Token string    // not supported by the library currently
 }
 
-// UploadTask defines upload parameters for a single file
-type UploadTask struct {
+// TransferTask defines upload parameters for a single file
+type TransferTask struct {
 	From, To string
 }
 
-// UploadStatus indicates how the upload has finished
-type UploadStatus int
+// TransferStatus indicates how the upload has finished
+type TransferStatus int
 
-// All possible values of UploadStatus
+// All possible values of TransferStatus
 const (
-	StatusUploaded     UploadStatus = iota
-	StatusFailed                    = iota
-	StatusAlreadyExist              = iota
+	StatusDone         TransferStatus = iota
+	StatusFailed                      = iota
+	StatusAlreadyExist                = iota
 
 	StatusLast = iota
 )
 
-// UploadResult provides the status of the single file upload
-type UploadResult struct {
-	Task      UploadTask
-	Status    UploadStatus
+// TransferResult provides the status of the single file upload
+type TransferResult struct {
+	Task      TransferTask
+	Status    TransferStatus
 	TimeSpent time.Duration
 	Size      int64
 	Error     error
@@ -46,14 +46,14 @@ type UploadResult struct {
 
 // Uploader provides separate goroutine for file upload
 type Uploader struct {
-	opts    UploadOptions
+	opts    TransferSettings
 	client  *gowebdav.Client
-	tasks   <-chan UploadTask
-	results chan<- UploadResult
+	tasks   <-chan TransferTask
+	results chan<- TransferResult
 }
 
 // NewUploader creates a new Uploader
-func NewUploader(opts UploadOptions, tasks <-chan UploadTask, results chan<- UploadResult) *Uploader {
+func NewUploader(opts TransferSettings, tasks <-chan TransferTask, results chan<- TransferResult) *Uploader {
 	u := &Uploader{opts: opts,
 		client:  gowebdav.NewClient(opts.Host, opts.User, opts.Password),
 		tasks:   tasks,
@@ -110,7 +110,7 @@ func checkNeedUpload(client *gowebdav.Client, from, to string) bool {
 	return false
 }
 
-func uploadOne(client *gowebdav.Client, from, to string) (UploadStatus, error) {
+func uploadOne(client *gowebdav.Client, from, to string) (TransferStatus, error) {
 	if !checkNeedUpload(client, from, to) {
 		// TODO: return "already exists"
 		return StatusAlreadyExist, nil
@@ -134,7 +134,7 @@ func uploadOne(client *gowebdav.Client, from, to string) (UploadStatus, error) {
 		log.WithFields(log.Fields{"file": from, "error": err}).Error("Could not upload file")
 		return StatusFailed, err
 	}
-	return StatusUploaded, nil
+	return StatusDone, nil
 }
 
 // Run starts an uploader in a separate goroutine
@@ -148,7 +148,7 @@ func (u *Uploader) Run() {
 			tdiff := time.Now().Sub(t1)
 			finfo, _ := os.Stat(task.From)
 			size := finfo.Size()
-			res := UploadResult{
+			res := TransferResult{
 				Status:    status,
 				Task:      task,
 				TimeSpent: tdiff,

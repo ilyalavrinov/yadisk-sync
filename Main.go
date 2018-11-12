@@ -29,10 +29,10 @@ const (
 	argQuietDesc  = "Quiet mode - only problems are reported"
 )
 
-var fromPath = flag.String(argFrom, "", "File or directory which could be uploaded")
-var toPath = flag.String(argTo, "", "Remote directory where everything will be uploaded")
+var fromPath = flag.String(argFrom, "", "File or directory used a source of sync")
+var toPath = flag.String(argTo, "", "Directory where everything will be stored")
 var host = flag.String(argHost, "https://webdav.yandex.ru", "WedDAV server hostname")
-var threadsNum = flag.Int(argThreads, runtime.GOMAXPROCS(0)*3, "Number of threads used for uploading")
+var threadsNum = flag.Int(argThreads, runtime.GOMAXPROCS(0)*3, "Number of threads used for transferring")
 var user = flag.String(argUser, "", "Username used for authentication")
 var profilingEnabled = flag.Bool(argProfile, false, "Enables profiling")
 var verbose = flag.Bool(argVerbose, false, argVerboseDesc)
@@ -91,14 +91,14 @@ func main() {
 	}
 
 	pw := requestFromStdin("password")
-	opts := UploadOptions{Host: *host,
+	opts := TransferSettings{Host: *host,
 		User:     *user,
 		Password: pw}
 
-	uploadTasks := make(chan UploadTask, *threadsNum*100)
-	resultsCh := make(chan UploadResult, *threadsNum)
+	TransferTasks := make(chan TransferTask, *threadsNum*100)
+	resultsCh := make(chan TransferResult, *threadsNum)
 	for i := 0; i < *threadsNum; i++ {
-		uploader := NewUploader(opts, uploadTasks, resultsCh)
+		uploader := NewUploader(opts, TransferTasks, resultsCh)
 		uploader.Run()
 	}
 
@@ -110,7 +110,7 @@ func main() {
 	t1 := time.Now()
 
 	for _, u := range uploads {
-		uploadTasks <- u
+		TransferTasks <- u
 	}
 
 	wg.Wait()
@@ -120,8 +120,8 @@ func main() {
 	summary.print()
 }
 
-func createUploadList(fpath, uploadDir string) []UploadTask {
-	result := make([]UploadTask, 0, 1)
+func createUploadList(fpath, uploadDir string) []TransferTask {
+	result := make([]TransferTask, 0, 1)
 	// log.Printf("Creating upload list for: %s (with uploadDir %s)", fpath, uploadDir)
 	stat, err := os.Stat(fpath)
 	if err != nil {
@@ -129,7 +129,7 @@ func createUploadList(fpath, uploadDir string) []UploadTask {
 	}
 
 	if stat.Mode().IsRegular() {
-		result = append(result, UploadTask{From: fpath,
+		result = append(result, TransferTask{From: fpath,
 			To: path.Join(uploadDir, stat.Name())})
 	} else if stat.Mode().IsDir() {
 		content, err := ioutil.ReadDir(fpath)
@@ -155,7 +155,7 @@ func requestFromStdin(what string) string {
 
 // UploadSummary provides accumulated statistics about how did the uploading go
 type UploadSummary struct {
-	statuses          map[UploadStatus]int
+	statuses          map[TransferStatus]int
 	totalSizeUploaded int64
 	totalTimeSpent    time.Duration
 	clockTimeSpent    time.Duration
@@ -165,17 +165,17 @@ type UploadSummary struct {
 
 // NewUploadSummary initializes new UploadSummary
 func NewUploadSummary() *UploadSummary {
-	s := &UploadSummary{statuses: make(map[UploadStatus]int, StatusLast),
+	s := &UploadSummary{statuses: make(map[TransferStatus]int, StatusLast),
 		failedToUpload: make([]string, 0)}
 	return s
 }
 
 func (s UploadSummary) print() {
 	log.WithFields(log.Fields{
-		"uploaded": s.statuses[StatusUploaded],
+		"uploaded": s.statuses[StatusDone],
 		"skipped":  s.statuses[StatusAlreadyExist],
 		"failed":   s.statuses[StatusFailed]}).Info("Totals")
-	//fmt.Printf("Total uploaded: %d; skipped: %d; failed: %d\n", s.statuses[StatusUploaded], s.statuses[StatusAlreadyExist], s.statuses[StatusFailed])
+	//fmt.Printf("Total uploaded: %d; skipped: %d; failed: %d\n", s.statuses[StatusDone], s.statuses[StatusAlreadyExist], s.statuses[StatusFailed])
 
 	log.WithFields(log.Fields{
 		"B":  s.totalSizeUploaded,
@@ -219,11 +219,11 @@ func (s UploadSummary) print() {
 	}
 }
 
-func collectResults(results <-chan UploadResult, wg *sync.WaitGroup, resultsExpected int, summary *UploadSummary) {
+func collectResults(results <-chan TransferResult, wg *sync.WaitGroup, resultsExpected int, summary *UploadSummary) {
 	for res := range results {
 		summary.statuses[res.Status]++
 		switch res.Status {
-		case StatusUploaded:
+		case StatusDone:
 			log.WithFields(log.Fields{
 				"from":    res.Task.From,
 				"spent":   res.TimeSpent,
