@@ -82,9 +82,6 @@ func main() {
 		defer stopProfiling()
 	}
 
-	uploads := createUploadList(*fromPath, *toPath)
-	log.WithFields(log.Fields{"count": len(uploads)}).Info("List of uploads is ready")
-
 	if *user == "" {
 		*user = requestFromStdin("user")
 		log.WithFields(log.Fields{"user": *user}).Debug("User has been requested from stdin")
@@ -95,22 +92,27 @@ func main() {
 		User:     *user,
 		Password: pw}
 
-	TransferTasks := make(chan TransferTask, *threadsNum*100)
+	var tasks []TransferTask
+	tasks = createUploadList(*fromPath, *toPath)
+	log.WithFields(log.Fields{"count": len(tasks)}).Info("List of uploads is ready")
+	// TODO: list of downloads
+
+	tasksCh := make(chan TransferTask, *threadsNum*100)
 	resultsCh := make(chan TransferResult, *threadsNum)
 	for i := 0; i < *threadsNum; i++ {
-		uploader := NewUploader(opts, TransferTasks, resultsCh)
-		uploader.Run()
+		worker := NewUploader(opts, tasksCh, resultsCh)
+		worker.Run()
 	}
 
 	wg := sync.WaitGroup{}
-	summary := NewUploadSummary()
-	go collectResults(resultsCh, &wg, len(uploads), summary)
+	summary := NewTransferSummary()
+	go collectResults(resultsCh, &wg, len(tasks), summary)
 	wg.Add(1)
 
 	t1 := time.Now()
 
-	for _, u := range uploads {
-		TransferTasks <- u
+	for _, t := range tasks {
+		tasksCh <- t
 	}
 
 	wg.Wait()
@@ -122,7 +124,7 @@ func main() {
 
 func createUploadList(fpath, uploadDir string) []TransferTask {
 	result := make([]TransferTask, 0, 1)
-	// log.Printf("Creating upload list for: %s (with uploadDir %s)", fpath, uploadDir)
+	log.WithFields(log.Fields{"local": fpath, "remote": uploadDir}).Debug("Creating upload list")
 	stat, err := os.Stat(fpath)
 	if err != nil {
 		panic(err)
@@ -153,73 +155,64 @@ func requestFromStdin(what string) string {
 	return string(byteData)
 }
 
-// UploadSummary provides accumulated statistics about how did the uploading go
-type UploadSummary struct {
-	statuses          map[TransferStatus]int
-	totalSizeUploaded int64
-	totalTimeSpent    time.Duration
-	clockTimeSpent    time.Duration
+// TransferSummary provides accumulated statistics about how did the transferring go
+type TransferSummary struct {
+	statuses             map[TransferStatus]int
+	totalSizeTransferred int64
+	totalTimeSpent       time.Duration
+	clockTimeSpent       time.Duration
 
-	failedToUpload []string
+	failedToTransfer []string
 }
 
-// NewUploadSummary initializes new UploadSummary
-func NewUploadSummary() *UploadSummary {
-	s := &UploadSummary{statuses: make(map[TransferStatus]int, StatusLast),
-		failedToUpload: make([]string, 0)}
+// NewTransferSummary initializes new TransferSummary
+func NewTransferSummary() *TransferSummary {
+	s := &TransferSummary{statuses: make(map[TransferStatus]int, StatusLast),
+		failedToTransfer: make([]string, 0)}
 	return s
 }
 
-func (s UploadSummary) print() {
+func (s TransferSummary) print() {
 	log.WithFields(log.Fields{
-		"uploaded": s.statuses[StatusDone],
-		"skipped":  s.statuses[StatusAlreadyExist],
-		"failed":   s.statuses[StatusFailed]}).Info("Totals")
-	//fmt.Printf("Total uploaded: %d; skipped: %d; failed: %d\n", s.statuses[StatusDone], s.statuses[StatusAlreadyExist], s.statuses[StatusFailed])
+		"done":    s.statuses[StatusDone],
+		"skipped": s.statuses[StatusAlreadyExist],
+		"failed":  s.statuses[StatusFailed]}).Info("Totals")
 
 	log.WithFields(log.Fields{
-		"B":  s.totalSizeUploaded,
-		"KB": s.totalSizeUploaded / 1024,
-		"MB": s.totalSizeUploaded / 1024 / 1024,
-		"GB": s.totalSizeUploaded / 1024 / 1024 / 1024}).Info("Total processed size")
-	//fmt.Printf("Total uploaded bytes: %d\n", s.totalSizeUploaded)
-
-	log.WithFields(log.Fields{
-		"spent":   s.totalTimeSpent,
-		"bytes/s": float64(s.totalSizeUploaded) / s.totalTimeSpent.Seconds()}).Info("Raw processing stats (as if in 1 thread)")
-	//fmt.Printf("Raw time spent for upload: %s\n", s.totalTimeSpent)
-	//fmt.Printf("Raw average speed: %f bytes/s\n", float64(s.totalSizeUploaded) / s.totalTimeSpent.Seconds())
+		"B":  s.totalSizeTransferred,
+		"KB": s.totalSizeTransferred / 1024,
+		"MB": s.totalSizeTransferred / 1024 / 1024,
+		"GB": s.totalSizeTransferred / 1024 / 1024 / 1024}).Info("Total processed size")
 
 	log.WithFields(log.Fields{
 		"spent":   s.totalTimeSpent,
-		"bytes/s": float64(s.totalSizeUploaded) / s.clockTimeSpent.Seconds()}).Info("Actual processing stats")
-	//fmt.Printf("Clock time spent for upload: %s\n", s.clockTimeSpent)
-	//fmt.Printf("Average speed: %f bytes/s\n", float64(s.totalSizeUploaded) / s.clockTimeSpent.Seconds())
+		"bytes/s": float64(s.totalSizeTransferred) / s.totalTimeSpent.Seconds()}).Info("Raw processing stats (as if in 1 thread)")
 
-	failedN := len(s.failedToUpload)
-	//fmt.Printf("Failed uploads: %d\n", failedN)
+	log.WithFields(log.Fields{
+		"spent":   s.totalTimeSpent,
+		"bytes/s": float64(s.totalSizeTransferred) / s.clockTimeSpent.Seconds()}).Info("Actual processing stats")
+
+	failedN := len(s.failedToTransfer)
 	if failedN > 0 {
-		log.WithField("failed", failedN).Warn("Failed transactions")
-		fname := fmt.Sprintf("upload_failed_%s.list", time.Now().Format("20060102150405"))
+		log.WithField("failed", failedN).Warn("Failed transfers")
+		fname := fmt.Sprintf("transfer_failed_%s.list", time.Now().Format("20060102150405"))
 		f, err := os.Create(fname)
 		defer f.Close()
 		if err != nil {
 			log.WithFields(log.Fields{
 				"file": fname,
-				"list": s.failedToUpload}).Warn("Failed to create a file for failed uploads")
-			//fmt.Printf("Failed to create file %s for failed uploads. Failed upload list: %+v", fname, s.failedToUpload)
+				"list": s.failedToTransfer}).Warn("Failed to create a file for failed transfers")
 		} else {
-			for _, failedUpload := range s.failedToUpload {
-				f.WriteString(failedUpload)
+			for _, failedTransfer := range s.failedToTransfer {
+				f.WriteString(failedTransfer)
 				f.WriteString("\n")
 			}
-			log.WithFields(log.Fields{"file": fname}).Warn("Failed uploads have beed written")
-			//fmt.Printf("Failed uploads have beed written to file %s", fname)
+			log.WithFields(log.Fields{"file": fname}).Warn("Failed transfers have beed written")
 		}
 	}
 }
 
-func collectResults(results <-chan TransferResult, wg *sync.WaitGroup, resultsExpected int, summary *UploadSummary) {
+func collectResults(results <-chan TransferResult, wg *sync.WaitGroup, resultsExpected int, summary *TransferSummary) {
 	for res := range results {
 		summary.statuses[res.Status]++
 		switch res.Status {
@@ -228,15 +221,15 @@ func collectResults(results <-chan TransferResult, wg *sync.WaitGroup, resultsEx
 				"from":    res.Task.From,
 				"spent":   res.TimeSpent,
 				"size":    res.Size,
-				"bytes/s": float64(res.Size) / res.TimeSpent.Seconds()}).Info("Uploaded")
-			summary.totalSizeUploaded += res.Size
+				"bytes/s": float64(res.Size) / res.TimeSpent.Seconds()}).Info("Transferred")
+			summary.totalSizeTransferred += res.Size
 			summary.totalTimeSpent += res.TimeSpent
 		case StatusAlreadyExist:
 			log.WithFields(log.Fields{
-				"from": res.Task.From}).Debug("Already exists, skipping upload")
+				"from": res.Task.From}).Debug("Already exists, skipping transfer")
 		case StatusFailed:
-			log.WithFields(log.Fields{"from": res.Task.From, "to": res.Task.To, "error": res.Error}).Error("Upload failed")
-			summary.failedToUpload = append(summary.failedToUpload, res.Task.From)
+			log.WithFields(log.Fields{"from": res.Task.From, "to": res.Task.To, "error": res.Error}).Error("Transfer failed")
+			summary.failedToTransfer = append(summary.failedToTransfer, res.Task.From)
 		default:
 			panic("Unhandled status")
 		}
