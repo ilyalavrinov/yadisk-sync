@@ -18,12 +18,12 @@ type TransferSettings struct {
 	// Token string    // not supported by the library currently
 }
 
-// TransferTask defines upload parameters for a single file
+// TransferTask defines transfer parameters for a single file
 type TransferTask struct {
 	From, To string
 }
 
-// TransferStatus indicates how the upload has finished
+// TransferStatus indicates how the transfer has finished
 type TransferStatus int
 
 // All possible values of TransferStatus
@@ -35,7 +35,7 @@ const (
 	StatusLast = iota
 )
 
-// TransferResult provides the status of the single file upload
+// TransferResult provides the status of the single file transfer
 type TransferResult struct {
 	Task      TransferTask
 	Status    TransferStatus
@@ -44,17 +44,17 @@ type TransferResult struct {
 	Error     error
 }
 
-// Uploader provides separate goroutine for file upload
-type Uploader struct {
+// Worker provides separate goroutine for file transfer
+type Worker struct {
 	opts    TransferSettings
 	client  *gowebdav.Client
 	tasks   <-chan TransferTask
 	results chan<- TransferResult
 }
 
-// NewUploader creates a new Uploader
-func NewUploader(opts TransferSettings, tasks <-chan TransferTask, results chan<- TransferResult) *Uploader {
-	u := &Uploader{opts: opts,
+// NewWorker creates a new Worker
+func NewWorker(opts TransferSettings, tasks <-chan TransferTask, results chan<- TransferResult) *Worker {
+	u := &Worker{opts: opts,
 		client:  gowebdav.NewClient(opts.Host, opts.User, opts.Password),
 		tasks:   tasks,
 		results: results}
@@ -137,8 +137,8 @@ func uploadOne(client *gowebdav.Client, from, to string) (TransferStatus, error)
 	return StatusDone, nil
 }
 
-// Run starts an uploader in a separate goroutine
-func (u *Uploader) Run() {
+// Run starts a worker in a separate goroutine
+func (u *Worker) Run() {
 	go func() {
 		task, notClosed := <-u.tasks
 		for ; notClosed; task, notClosed = <-u.tasks {

@@ -100,7 +100,7 @@ func main() {
 	tasksCh := make(chan TransferTask, *threadsNum*100)
 	resultsCh := make(chan TransferResult, *threadsNum)
 	for i := 0; i < *threadsNum; i++ {
-		worker := NewUploader(opts, tasksCh, resultsCh)
+		worker := NewWorker(opts, tasksCh, resultsCh)
 		worker.Run()
 	}
 
