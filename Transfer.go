@@ -18,9 +18,19 @@ type TransferSettings struct {
 	// Token string    // not supported by the library currently
 }
 
+// OperationType determines what type of operation has to be done
+type OperationType int
+
+// All available task types
+const (
+	OperationUpload   OperationType = iota
+	OperationDownload OperationType = iota
+)
+
 // TransferTask defines transfer parameters for a single file
 type TransferTask struct {
-	From, To string
+	Operation OperationType
+	From, To  string
 }
 
 // TransferStatus indicates how the transfer has finished
@@ -142,9 +152,19 @@ func (u *Worker) Run() {
 	go func() {
 		task, notClosed := <-u.tasks
 		for ; notClosed; task, notClosed = <-u.tasks {
-			// log.Printf("Uploading %s to %s", task.From, task.To)
+
+			var status TransferStatus
+			var err error
 			t1 := time.Now()
-			status, err := uploadOne(u.client, task.From, task.To)
+			switch task.Operation {
+			case OperationUpload:
+				status, err = uploadOne(u.client, task.From, task.To)
+			case OperationDownload:
+				panic("Download operation is not yet supported")
+			default:
+				panic("Unexpected operation received")
+			}
+
 			tdiff := time.Now().Sub(t1)
 			finfo, _ := os.Stat(task.From)
 			size := finfo.Size()

@@ -131,8 +131,10 @@ func createUploadList(fpath, uploadDir string) []TransferTask {
 	}
 
 	if stat.Mode().IsRegular() {
-		result = append(result, TransferTask{From: fpath,
-			To: path.Join(uploadDir, stat.Name())})
+		result = append(result, TransferTask{
+			Operation: OperationUpload,
+			From:      fpath,
+			To:        path.Join(uploadDir, stat.Name())})
 	} else if stat.Mode().IsDir() {
 		content, err := ioutil.ReadDir(fpath)
 		if err != nil {
