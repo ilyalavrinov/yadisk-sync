@@ -11,6 +11,7 @@ import "syscall"
 import "sync"
 import "runtime"
 import "golang.org/x/crypto/ssh/terminal"
+import "github.com/studio-b12/gowebdav"
 
 const (
 	argFrom    = "from"
@@ -27,6 +28,9 @@ const (
 	argQuiet      = "quiet"
 	argQuietShort = "q"
 	argQuietDesc  = "Quiet mode - only problems are reported"
+
+	argUpload   = "upload"
+	argDownload = "download"
 )
 
 var fromPath = flag.String(argFrom, "", "File or directory used a source of sync")
@@ -37,6 +41,8 @@ var user = flag.String(argUser, "", "Username used for authentication")
 var profilingEnabled = flag.Bool(argProfile, false, "Enables profiling")
 var verbose = flag.Bool(argVerbose, false, argVerboseDesc)
 var quiet = flag.Bool(argQuiet, false, argQuietDesc)
+var opUpload = flag.Bool(argUpload, false, "Files will be uploaded")
+var opDownload = flag.Bool(argDownload, false, "Files will be downloaded")
 
 func init() {
 	// initialization of short version of flags
@@ -64,6 +70,8 @@ func main() {
 	log.WithFields(log.Fields{"arg": argProfile, "value": *profilingEnabled}).Debug("Argument")
 	log.WithFields(log.Fields{"arg": argVerbose, "value": *verbose}).Debug("Argument")
 	log.WithFields(log.Fields{"arg": argQuiet, "value": *quiet}).Debug("Argument")
+	log.WithFields(log.Fields{"arg": argUpload, "value": *opUpload}).Debug("Argument")
+	log.WithFields(log.Fields{"arg": argDownload, "value": *opDownload}).Debug("Argument")
 
 	isCorrectArgs := true
 	if fromPath == nil || *fromPath == "" {
@@ -71,8 +79,13 @@ func main() {
 		isCorrectArgs = false
 	}
 
+	if *opUpload == *opDownload {
+		log.WithFields(log.Fields{"upload": *opUpload, "download": *opDownload}).Error("Incorrect argument setting")
+		isCorrectArgs = false
+	}
+
 	if isCorrectArgs == false {
-		log.Error("Mandatory argument missing, printing help")
+		log.Error("Incorrect argument usage, printing help")
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
@@ -93,10 +106,13 @@ func main() {
 		Password: pw}
 
 	var tasks []TransferTask
-	tasks = createUploadList(*fromPath, *toPath)
-	log.WithFields(log.Fields{"count": len(tasks)}).Info("List of uploads is ready")
-	// TODO: list of downloads
+	if *opUpload {
+		tasks = createUploadList(*fromPath, *toPath)
+	} else {
+		tasks = createDownloadList(*fromPath, *toPath, opts)
+	}
 
+	log.WithFields(log.Fields{"count": len(tasks)}).Info("List of transfers is ready")
 	tasksCh := make(chan TransferTask, *threadsNum*100)
 	resultsCh := make(chan TransferResult, *threadsNum)
 	for i := 0; i < *threadsNum; i++ {
@@ -146,6 +162,41 @@ func createUploadList(fpath, uploadDir string) []TransferTask {
 		}
 	} else {
 		panic("Unhandled path mode")
+	}
+	return result
+}
+
+func createDownloadList(remotePath, dlDir string, connOpts TransferSettings) []TransferTask {
+	client := gowebdav.NewClient(connOpts.Host, connOpts.User, connOpts.Password)
+	return _createDownloadList(remotePath, dlDir, client)
+
+}
+
+func _createDownloadList(remotePath, dlDir string, client *gowebdav.Client) []TransferTask {
+	result := make([]TransferTask, 0, 1)
+	log.WithFields(log.Fields{"local": dlDir, "remote": remotePath}).Debug("Creating download list")
+
+	finfo, err := client.Stat(remotePath)
+	if err != nil {
+		log.Panic("Cannot get remote path stats", err)
+	}
+
+	if finfo.IsDir() {
+		dirContents, err := client.ReadDir(remotePath)
+		if err != nil {
+			log.Panic("Could not read remote directory contents", err)
+		}
+		for _, finfo := range dirContents {
+			result = append(result, _createDownloadList(
+				path.Join(remotePath, finfo.Name()),
+				path.Join(dlDir, finfo.Name()),
+				client)...)
+		}
+	} else {
+		result = append(result, TransferTask{
+			Operation: OperationDownload,
+			From:      remotePath,
+			To:        path.Join(dlDir, finfo.Name())})
 	}
 	return result
 }
