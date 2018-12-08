@@ -157,7 +157,8 @@ func createUploadList(fpath, uploadDir string) []TransferTask {
 			panic(err)
 		}
 		for _, info := range content {
-			result = append(result, createUploadList(path.Join(fpath, info.Name()),
+			result = append(result, createUploadList(
+				path.Join(fpath, info.Name()),
 				path.Join(uploadDir, stat.Name()))...)
 		}
 	} else {
@@ -176,12 +177,12 @@ func _createDownloadList(remotePath, dlDir string, client *gowebdav.Client) []Tr
 	result := make([]TransferTask, 0, 1)
 	log.WithFields(log.Fields{"local": dlDir, "remote": remotePath}).Debug("Creating download list")
 
-	finfo, err := client.Stat(remotePath)
+	fstat, err := client.Stat(remotePath)
 	if err != nil {
 		log.Panic("Cannot get remote path stats", err)
 	}
 
-	if finfo.IsDir() {
+	if fstat.IsDir() {
 		dirContents, err := client.ReadDir(remotePath)
 		if err != nil {
 			log.Panic("Could not read remote directory contents", err)
@@ -189,14 +190,14 @@ func _createDownloadList(remotePath, dlDir string, client *gowebdav.Client) []Tr
 		for _, finfo := range dirContents {
 			result = append(result, _createDownloadList(
 				path.Join(remotePath, finfo.Name()),
-				path.Join(dlDir, finfo.Name()),
+				path.Join(dlDir, fstat.Name()),
 				client)...)
 		}
 	} else {
 		result = append(result, TransferTask{
 			Operation: OperationDownload,
 			From:      remotePath,
-			To:        path.Join(dlDir, finfo.Name())})
+			To:        path.Join(dlDir, fstat.Name())})
 	}
 	return result
 }

@@ -122,7 +122,6 @@ func checkNeedUpload(client *gowebdav.Client, from, to string) bool {
 
 func uploadOne(client *gowebdav.Client, from, to string) (TransferStatus, error) {
 	if !checkNeedUpload(client, from, to) {
-		// TODO: return "already exists"
 		return StatusAlreadyExist, nil
 	}
 
@@ -147,6 +146,39 @@ func uploadOne(client *gowebdav.Client, from, to string) (TransferStatus, error)
 	return StatusDone, nil
 }
 
+func downloadOne(client *gowebdav.Client, from, to string) (TransferStatus, error) {
+	if !checkNeedUpload(client, to, from) {
+		return StatusAlreadyExist, nil
+	}
+
+	remote, err := client.ReadStream(from)
+	if err != nil {
+		log.WithFields(log.Fields{"file": from, "error": err}).Error("Could not open remote file for reading")
+		return StatusFailed, err
+	}
+
+	dirs := path.Dir(to)
+	err = os.MkdirAll(dirs, os.ModePerm)
+	if err != nil {
+		log.WithFields(log.Fields{"dir": dirs, "error": err}).Error("Could not create local directories")
+		return StatusFailed, err
+	}
+
+	local, err := os.Create(to)
+	if err != nil {
+		log.WithFields(log.Fields{"file": to, "error": err}).Error("Could not open local file for writing")
+		return StatusFailed, err
+	}
+
+	_, err = io.Copy(local, remote)
+	if err != nil {
+		log.WithFields(log.Fields{"local": to, "remote": from, "error": err}).Error("Could not copy remote file into a local")
+		return StatusFailed, err
+	}
+
+	return StatusDone, nil
+}
+
 // Run starts a worker in a separate goroutine
 func (u *Worker) Run() {
 	go func() {
@@ -155,18 +187,21 @@ func (u *Worker) Run() {
 
 			var status TransferStatus
 			var err error
+			var localFile string
 			t1 := time.Now()
 			switch task.Operation {
 			case OperationUpload:
 				status, err = uploadOne(u.client, task.From, task.To)
+				localFile = task.From
 			case OperationDownload:
-				panic("Download operation is not yet supported")
+				status, err = downloadOne(u.client, task.From, task.To)
+				localFile = task.To
 			default:
 				panic("Unexpected operation received")
 			}
 
 			tdiff := time.Now().Sub(t1)
-			finfo, _ := os.Stat(task.From)
+			finfo, _ := os.Stat(localFile)
 			size := finfo.Size()
 			res := TransferResult{
 				Status:    status,
