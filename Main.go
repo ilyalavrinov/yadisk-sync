@@ -11,6 +11,7 @@ import "syscall"
 import "sync"
 import "runtime"
 import "golang.org/x/crypto/ssh/terminal"
+import "github.com/studio-b12/gowebdav"
 
 const (
 	argFrom    = "from"
@@ -27,16 +28,21 @@ const (
 	argQuiet      = "quiet"
 	argQuietShort = "q"
 	argQuietDesc  = "Quiet mode - only problems are reported"
+
+	argUpload   = "upload"
+	argDownload = "download"
 )
 
-var fromPath = flag.String(argFrom, "", "File or directory which could be uploaded")
-var toPath = flag.String(argTo, "", "Remote directory where everything will be uploaded")
+var fromPath = flag.String(argFrom, "", "File or directory used a source of sync")
+var toPath = flag.String(argTo, "", "Directory where everything will be stored")
 var host = flag.String(argHost, "https://webdav.yandex.ru", "WedDAV server hostname")
-var threadsNum = flag.Int(argThreads, runtime.GOMAXPROCS(0)*3, "Number of threads used for uploading")
+var threadsNum = flag.Int(argThreads, runtime.GOMAXPROCS(0)*3, "Number of threads used for transferring")
 var user = flag.String(argUser, "", "Username used for authentication")
 var profilingEnabled = flag.Bool(argProfile, false, "Enables profiling")
 var verbose = flag.Bool(argVerbose, false, argVerboseDesc)
 var quiet = flag.Bool(argQuiet, false, argQuietDesc)
+var opUpload = flag.Bool(argUpload, false, "Files will be uploaded")
+var opDownload = flag.Bool(argDownload, false, "Files will be downloaded")
 
 func init() {
 	// initialization of short version of flags
@@ -64,6 +70,8 @@ func main() {
 	log.WithFields(log.Fields{"arg": argProfile, "value": *profilingEnabled}).Debug("Argument")
 	log.WithFields(log.Fields{"arg": argVerbose, "value": *verbose}).Debug("Argument")
 	log.WithFields(log.Fields{"arg": argQuiet, "value": *quiet}).Debug("Argument")
+	log.WithFields(log.Fields{"arg": argUpload, "value": *opUpload}).Debug("Argument")
+	log.WithFields(log.Fields{"arg": argDownload, "value": *opDownload}).Debug("Argument")
 
 	isCorrectArgs := true
 	if fromPath == nil || *fromPath == "" {
@@ -71,8 +79,13 @@ func main() {
 		isCorrectArgs = false
 	}
 
+	if *opUpload == *opDownload {
+		log.WithFields(log.Fields{"upload": *opUpload, "download": *opDownload}).Error("Incorrect argument setting")
+		isCorrectArgs = false
+	}
+
 	if isCorrectArgs == false {
-		log.Error("Mandatory argument missing, printing help")
+		log.Error("Incorrect argument usage, printing help")
 		flag.PrintDefaults()
 		os.Exit(1)
 	}
@@ -82,35 +95,40 @@ func main() {
 		defer stopProfiling()
 	}
 
-	uploads := createUploadList(*fromPath, *toPath)
-	log.WithFields(log.Fields{"count": len(uploads)}).Info("List of uploads is ready")
-
 	if *user == "" {
 		*user = requestFromStdin("user")
 		log.WithFields(log.Fields{"user": *user}).Debug("User has been requested from stdin")
 	}
 
 	pw := requestFromStdin("password")
-	opts := UploadOptions{Host: *host,
+	opts := TransferSettings{Host: *host,
 		User:     *user,
 		Password: pw}
 
-	uploadTasks := make(chan UploadTask, *threadsNum*100)
-	resultsCh := make(chan UploadResult, *threadsNum)
+	var tasks []TransferTask
+	if *opUpload {
+		tasks = createUploadList(*fromPath, *toPath)
+	} else {
+		tasks = createDownloadList(*fromPath, *toPath, opts)
+	}
+
+	log.WithFields(log.Fields{"count": len(tasks)}).Info("List of transfers is ready")
+	tasksCh := make(chan TransferTask, *threadsNum*100)
+	resultsCh := make(chan TransferResult, *threadsNum)
 	for i := 0; i < *threadsNum; i++ {
-		uploader := NewUploader(opts, uploadTasks, resultsCh)
-		uploader.Run()
+		worker := NewWorker(opts, tasksCh, resultsCh)
+		worker.Run()
 	}
 
 	wg := sync.WaitGroup{}
-	summary := NewUploadSummary()
-	go collectResults(resultsCh, &wg, len(uploads), summary)
+	summary := NewTransferSummary()
+	go collectResults(resultsCh, &wg, len(tasks), summary)
 	wg.Add(1)
 
 	t1 := time.Now()
 
-	for _, u := range uploads {
-		uploadTasks <- u
+	for _, t := range tasks {
+		tasksCh <- t
 	}
 
 	wg.Wait()
@@ -120,28 +138,66 @@ func main() {
 	summary.print()
 }
 
-func createUploadList(fpath, uploadDir string) []UploadTask {
-	result := make([]UploadTask, 0, 1)
-	// log.Printf("Creating upload list for: %s (with uploadDir %s)", fpath, uploadDir)
+func createUploadList(fpath, uploadDir string) []TransferTask {
+	result := make([]TransferTask, 0, 1)
+	log.WithFields(log.Fields{"local": fpath, "remote": uploadDir}).Debug("Creating upload list")
 	stat, err := os.Stat(fpath)
 	if err != nil {
 		panic(err)
 	}
 
 	if stat.Mode().IsRegular() {
-		result = append(result, UploadTask{From: fpath,
-			To: path.Join(uploadDir, stat.Name())})
+		result = append(result, TransferTask{
+			Operation: OperationUpload,
+			From:      fpath,
+			To:        path.Join(uploadDir, stat.Name())})
 	} else if stat.Mode().IsDir() {
 		content, err := ioutil.ReadDir(fpath)
 		if err != nil {
 			panic(err)
 		}
 		for _, info := range content {
-			result = append(result, createUploadList(path.Join(fpath, info.Name()),
+			result = append(result, createUploadList(
+				path.Join(fpath, info.Name()),
 				path.Join(uploadDir, stat.Name()))...)
 		}
 	} else {
 		panic("Unhandled path mode")
+	}
+	return result
+}
+
+func createDownloadList(remotePath, dlDir string, connOpts TransferSettings) []TransferTask {
+	client := gowebdav.NewClient(connOpts.Host, connOpts.User, connOpts.Password)
+	return _createDownloadList(remotePath, dlDir, client)
+
+}
+
+func _createDownloadList(remotePath, dlDir string, client *gowebdav.Client) []TransferTask {
+	result := make([]TransferTask, 0, 1)
+	log.WithFields(log.Fields{"local": dlDir, "remote": remotePath}).Debug("Creating download list")
+
+	fstat, err := client.Stat(remotePath)
+	if err != nil {
+		log.Panic("Cannot get remote path stats", err)
+	}
+
+	if fstat.IsDir() {
+		dirContents, err := client.ReadDir(remotePath)
+		if err != nil {
+			log.Panic("Could not read remote directory contents", err)
+		}
+		for _, finfo := range dirContents {
+			result = append(result, _createDownloadList(
+				path.Join(remotePath, finfo.Name()),
+				path.Join(dlDir, fstat.Name()),
+				client)...)
+		}
+	} else {
+		result = append(result, TransferTask{
+			Operation: OperationDownload,
+			From:      remotePath,
+			To:        path.Join(dlDir, fstat.Name())})
 	}
 	return result
 }
@@ -153,94 +209,87 @@ func requestFromStdin(what string) string {
 	return string(byteData)
 }
 
-// UploadSummary provides accumulated statistics about how did the uploading go
-type UploadSummary struct {
-	statuses          map[UploadStatus]int
-	totalSizeUploaded int64
-	totalTimeSpent    time.Duration
-	clockTimeSpent    time.Duration
+// TransferSummary provides accumulated statistics about how did the transferring go
+type TransferSummary struct {
+	statuses             map[TransferStatus]int
+	totalSizeTransferred int64
+	totalTimeSpent       time.Duration
+	clockTimeSpent       time.Duration
 
-	failedToUpload []string
+	failedToTransfer []string
 }
 
-// NewUploadSummary initializes new UploadSummary
-func NewUploadSummary() *UploadSummary {
-	s := &UploadSummary{statuses: make(map[UploadStatus]int, StatusLast),
-		failedToUpload: make([]string, 0)}
+// NewTransferSummary initializes new TransferSummary
+func NewTransferSummary() *TransferSummary {
+	s := &TransferSummary{statuses: make(map[TransferStatus]int, StatusLast),
+		failedToTransfer: make([]string, 0)}
 	return s
 }
 
-func (s UploadSummary) print() {
+func (s TransferSummary) print() {
 	log.WithFields(log.Fields{
-		"uploaded": s.statuses[StatusUploaded],
-		"skipped":  s.statuses[StatusAlreadyExist],
-		"failed":   s.statuses[StatusFailed]}).Info("Totals")
-	//fmt.Printf("Total uploaded: %d; skipped: %d; failed: %d\n", s.statuses[StatusUploaded], s.statuses[StatusAlreadyExist], s.statuses[StatusFailed])
+		"done":    s.statuses[StatusDone],
+		"skipped": s.statuses[StatusAlreadyExist],
+		"failed":  s.statuses[StatusFailed]}).Info("Totals")
 
 	log.WithFields(log.Fields{
-		"B":  s.totalSizeUploaded,
-		"KB": s.totalSizeUploaded / 1024,
-		"MB": s.totalSizeUploaded / 1024 / 1024,
-		"GB": s.totalSizeUploaded / 1024 / 1024 / 1024}).Info("Total processed size")
-	//fmt.Printf("Total uploaded bytes: %d\n", s.totalSizeUploaded)
-
-	log.WithFields(log.Fields{
-		"spent":   s.totalTimeSpent,
-		"bytes/s": float64(s.totalSizeUploaded) / s.totalTimeSpent.Seconds()}).Info("Raw processing stats (as if in 1 thread)")
-	//fmt.Printf("Raw time spent for upload: %s\n", s.totalTimeSpent)
-	//fmt.Printf("Raw average speed: %f bytes/s\n", float64(s.totalSizeUploaded) / s.totalTimeSpent.Seconds())
+		"B":  s.totalSizeTransferred,
+		"KB": s.totalSizeTransferred / 1024,
+		"MB": s.totalSizeTransferred / 1024 / 1024,
+		"GB": s.totalSizeTransferred / 1024 / 1024 / 1024}).Info("Total processed size")
 
 	log.WithFields(log.Fields{
 		"spent":   s.totalTimeSpent,
-		"bytes/s": float64(s.totalSizeUploaded) / s.clockTimeSpent.Seconds()}).Info("Actual processing stats")
-	//fmt.Printf("Clock time spent for upload: %s\n", s.clockTimeSpent)
-	//fmt.Printf("Average speed: %f bytes/s\n", float64(s.totalSizeUploaded) / s.clockTimeSpent.Seconds())
+		"bytes/s": float64(s.totalSizeTransferred) / s.totalTimeSpent.Seconds()}).Info("Raw processing stats (as if in 1 thread)")
 
-	failedN := len(s.failedToUpload)
-	//fmt.Printf("Failed uploads: %d\n", failedN)
+	log.WithFields(log.Fields{
+		"spent":   s.totalTimeSpent,
+		"bytes/s": float64(s.totalSizeTransferred) / s.clockTimeSpent.Seconds()}).Info("Actual processing stats")
+
+	failedN := len(s.failedToTransfer)
 	if failedN > 0 {
-		log.WithField("failed", failedN).Warn("Failed transactions")
-		fname := fmt.Sprintf("upload_failed_%s.list", time.Now().Format("20060102150405"))
+		log.WithField("failed", failedN).Warn("Failed transfers")
+		fname := fmt.Sprintf("transfer_failed_%s.list", time.Now().Format("20060102150405"))
 		f, err := os.Create(fname)
 		defer f.Close()
 		if err != nil {
 			log.WithFields(log.Fields{
 				"file": fname,
-				"list": s.failedToUpload}).Warn("Failed to create a file for failed uploads")
-			//fmt.Printf("Failed to create file %s for failed uploads. Failed upload list: %+v", fname, s.failedToUpload)
+				"list": s.failedToTransfer}).Warn("Failed to create a file for failed transfers")
 		} else {
-			for _, failedUpload := range s.failedToUpload {
-				f.WriteString(failedUpload)
+			for _, failedTransfer := range s.failedToTransfer {
+				f.WriteString(failedTransfer)
 				f.WriteString("\n")
 			}
-			log.WithFields(log.Fields{"file": fname}).Warn("Failed uploads have beed written")
-			//fmt.Printf("Failed uploads have beed written to file %s", fname)
+			log.WithFields(log.Fields{"file": fname}).Warn("Failed transfers have beed written")
 		}
 	}
 }
 
-func collectResults(results <-chan UploadResult, wg *sync.WaitGroup, resultsExpected int, summary *UploadSummary) {
+func collectResults(results <-chan TransferResult, wg *sync.WaitGroup, resultsExpected int, summary *TransferSummary) {
 	for res := range results {
 		summary.statuses[res.Status]++
+		resultsExpected--
+		logger := log.WithFields(log.Fields{
+			"from":      res.Task.From,
+			"remaining": resultsExpected})
 		switch res.Status {
-		case StatusUploaded:
-			log.WithFields(log.Fields{
-				"from":    res.Task.From,
+		case StatusDone:
+			logger.WithFields(log.Fields{
 				"spent":   res.TimeSpent,
 				"size":    res.Size,
-				"bytes/s": float64(res.Size) / res.TimeSpent.Seconds()}).Info("Uploaded")
-			summary.totalSizeUploaded += res.Size
+				"bytes/s": float64(res.Size) / res.TimeSpent.Seconds()}).Info("Transferred")
+			summary.totalSizeTransferred += res.Size
 			summary.totalTimeSpent += res.TimeSpent
 		case StatusAlreadyExist:
-			log.WithFields(log.Fields{
-				"from": res.Task.From}).Debug("Already exists, skipping upload")
+			logger.Debug("Already exists, skipping transfer")
 		case StatusFailed:
-			log.WithFields(log.Fields{"from": res.Task.From, "to": res.Task.To, "error": res.Error}).Error("Upload failed")
-			summary.failedToUpload = append(summary.failedToUpload, res.Task.From)
+			logger.WithFields(log.Fields{"to": res.Task.To, "error": res.Error}).Error("Transfer failed")
+			summary.failedToTransfer = append(summary.failedToTransfer, res.Task.From)
 		default:
 			panic("Unhandled status")
 		}
-		resultsExpected--
+
 		if resultsExpected == 0 {
 			break
 		}

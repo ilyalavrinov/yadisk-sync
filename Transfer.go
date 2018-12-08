@@ -9,52 +9,62 @@ import "path"
 import "encoding/hex"
 import "github.com/studio-b12/gowebdav"
 
-// UploadOptions provide settings for the connection to the server
+// TransferSettings provide settings for the connection to the server
 // TODO: rename to ConnectionSettings or something similar
-type UploadOptions struct {
+type TransferSettings struct {
 	Host     string
 	User     string
 	Password string
 	// Token string    // not supported by the library currently
 }
 
-// UploadTask defines upload parameters for a single file
-type UploadTask struct {
-	From, To string
+// OperationType determines what type of operation has to be done
+type OperationType int
+
+// All available task types
+const (
+	OperationUpload   OperationType = iota
+	OperationDownload OperationType = iota
+)
+
+// TransferTask defines transfer parameters for a single file
+type TransferTask struct {
+	Operation OperationType
+	From, To  string
 }
 
-// UploadStatus indicates how the upload has finished
-type UploadStatus int
+// TransferStatus indicates how the transfer has finished
+type TransferStatus int
 
-// All possible values of UploadStatus
+// All possible values of TransferStatus
 const (
-	StatusUploaded     UploadStatus = iota
-	StatusFailed                    = iota
-	StatusAlreadyExist              = iota
+	StatusDone         TransferStatus = iota
+	StatusFailed                      = iota
+	StatusAlreadyExist                = iota
 
 	StatusLast = iota
 )
 
-// UploadResult provides the status of the single file upload
-type UploadResult struct {
-	Task      UploadTask
-	Status    UploadStatus
+// TransferResult provides the status of the single file transfer
+type TransferResult struct {
+	Task      TransferTask
+	Status    TransferStatus
 	TimeSpent time.Duration
 	Size      int64
 	Error     error
 }
 
-// Uploader provides separate goroutine for file upload
-type Uploader struct {
-	opts    UploadOptions
+// Worker provides separate goroutine for file transfer
+type Worker struct {
+	opts    TransferSettings
 	client  *gowebdav.Client
-	tasks   <-chan UploadTask
-	results chan<- UploadResult
+	tasks   <-chan TransferTask
+	results chan<- TransferResult
 }
 
-// NewUploader creates a new Uploader
-func NewUploader(opts UploadOptions, tasks <-chan UploadTask, results chan<- UploadResult) *Uploader {
-	u := &Uploader{opts: opts,
+// NewWorker creates a new Worker
+func NewWorker(opts TransferSettings, tasks <-chan TransferTask, results chan<- TransferResult) *Worker {
+	u := &Worker{opts: opts,
 		client:  gowebdav.NewClient(opts.Host, opts.User, opts.Password),
 		tasks:   tasks,
 		results: results}
@@ -110,9 +120,8 @@ func checkNeedUpload(client *gowebdav.Client, from, to string) bool {
 	return false
 }
 
-func uploadOne(client *gowebdav.Client, from, to string) (UploadStatus, error) {
+func uploadOne(client *gowebdav.Client, from, to string) (TransferStatus, error) {
 	if !checkNeedUpload(client, from, to) {
-		// TODO: return "already exists"
 		return StatusAlreadyExist, nil
 	}
 
@@ -134,21 +143,67 @@ func uploadOne(client *gowebdav.Client, from, to string) (UploadStatus, error) {
 		log.WithFields(log.Fields{"file": from, "error": err}).Error("Could not upload file")
 		return StatusFailed, err
 	}
-	return StatusUploaded, nil
+	return StatusDone, nil
 }
 
-// Run starts an uploader in a separate goroutine
-func (u *Uploader) Run() {
+func downloadOne(client *gowebdav.Client, from, to string) (TransferStatus, error) {
+	if !checkNeedUpload(client, to, from) {
+		return StatusAlreadyExist, nil
+	}
+
+	remote, err := client.ReadStream(from)
+	if err != nil {
+		log.WithFields(log.Fields{"file": from, "error": err}).Error("Could not open remote file for reading")
+		return StatusFailed, err
+	}
+
+	dirs := path.Dir(to)
+	err = os.MkdirAll(dirs, os.ModePerm)
+	if err != nil {
+		log.WithFields(log.Fields{"dir": dirs, "error": err}).Error("Could not create local directories")
+		return StatusFailed, err
+	}
+
+	local, err := os.Create(to)
+	if err != nil {
+		log.WithFields(log.Fields{"file": to, "error": err}).Error("Could not open local file for writing")
+		return StatusFailed, err
+	}
+
+	_, err = io.Copy(local, remote)
+	if err != nil {
+		log.WithFields(log.Fields{"local": to, "remote": from, "error": err}).Error("Could not copy remote file into a local")
+		return StatusFailed, err
+	}
+
+	return StatusDone, nil
+}
+
+// Run starts a worker in a separate goroutine
+func (u *Worker) Run() {
 	go func() {
 		task, notClosed := <-u.tasks
 		for ; notClosed; task, notClosed = <-u.tasks {
-			// log.Printf("Uploading %s to %s", task.From, task.To)
+
+			var status TransferStatus
+			var err error
+			var localFile string
 			t1 := time.Now()
-			status, err := uploadOne(u.client, task.From, task.To)
+			switch task.Operation {
+			case OperationUpload:
+				status, err = uploadOne(u.client, task.From, task.To)
+				localFile = task.From
+			case OperationDownload:
+				status, err = downloadOne(u.client, task.From, task.To)
+				localFile = task.To
+			default:
+				panic("Unexpected operation received")
+			}
+
 			tdiff := time.Now().Sub(t1)
-			finfo, _ := os.Stat(task.From)
+			finfo, _ := os.Stat(localFile)
 			size := finfo.Size()
-			res := UploadResult{
+			res := TransferResult{
 				Status:    status,
 				Task:      task,
 				TimeSpent: tdiff,
